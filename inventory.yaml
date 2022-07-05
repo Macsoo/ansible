@@ -1,0 +1,6 @@
+virtualmachines:
+  hosts:
+    vm01:
+      ansible_host: 10.10.1.2
+  vars:
+    ansible_user: debian
