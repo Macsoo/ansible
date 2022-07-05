@@ -19,9 +19,64 @@
         - name: ns1
           type: A
           value: 10.10.1.2
+        - name: control
+          type: A
+          value: 10.10.1.1
+        - name: www
+          type: A
+          value: 10.10.1.1
+        - name: mail
+          type: A
+          value: 10.10.1.1
+        - name: pop3
+          type: CNAME
+          value: mail
+        - name: smtp
+          type: CNAME
+          value: mail
+        - name: imap
+          type: CNAME
+          value: mail
         - name: 2
           type: PTR
           value: "ns1.srv.lan."
+        - name: 1
+          type: PTR
+          value: "control.srv.lan."
+      - name: clt.lan
+        type: master
+        reverse: 2.20.10
+        records:
+        - name: "@"
+          type: NS
+          value: "ns1.clt.lan."
+        - name: ns1
+          type: A
+          value: 10.20.2.2
+        - name: control
+          type: A
+          value: 10.20.2.1
+        - name: www
+          type: A
+          value: 10.20.2.1
+        - name: mail
+          type: A
+          value: 10.20.2.1
+        - name: pop3
+          type: CNAME
+          value: mail
+        - name: smtp
+          type: CNAME
+          value: mail
+        - name: imap
+          type: CNAME
+          value: mail
+        - name: 2
+          type: PTR
+          value: "ns1.srv.lan."
+        - name: 1
+          type: PTR
+          value: "control.srv.lan."
   tasks:
   - name: "Install bind9"
     apt:
@@ -75,6 +130,22 @@
         reverse: 1.10.10
         routers:
         - 10.10.1.254
+    - ip: 10.20.2.0
+      netmask: 255.255.255.0
+      interface: enp0s9
+      from: 10.20.2.10
+      to: 10.20.2.253
+      options:
+        domain_name_servers:
+        - 10.20.2.2
+        domain_name: clt.lan
+        reverse: 2.20.10
+        routers:
+        - 10.20.2.254
+    fixed_hosts:
+      - name: control
+        mac: "08:00:27:d6:bd:e8"
+        address: 10.10.1.1
   tasks:
   - name: "Install isc-dhcp-server"
     apt:
