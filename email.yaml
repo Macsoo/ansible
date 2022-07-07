@@ -1,0 +1,76 @@
+- name: CA
+  hosts: virtualmachines
+  become: true
+  vars:
+    ssl:
+      key: /etc/ssl/private/ssl-srv.key
+      pem: /etc/ssl/certs/ssl-srv.pem
+  tasks:
+  - name: "Generate private key"
+    community.crypto.openssl_privatekey:
+      path: "{{ ssl.key }}"
+  - name: "Create certificate request"
+    community.crypto.openssl_csr_pipe:
+      privatekey_path: "{{ ssl.key }}"
+      common_name: mail.srv.lan
+      organization_name: "Srv LAN"
+      subject_alt_name:
+      - "DNS:smtp.srv.lan"
+      - "DNS:imap.srv.lan"
+    register: csr
+  - name: "Create certificate from CSR"
+    community.crypto.x509_certificate:
+      path: "{{ ssl.pem }}"
+      csr_content: "{{ csr.csr }}"
+      privatekey_path: "{{ ssl.key }}"
+      provider: selfsigned
+
+- name: Postfix
+  hosts: virtualmachines
+  become: true
+  vars:
+    hostname: mail
+    domain: srv.lan
+    ssl:
+      key: /etc/ssl/private/ssl-srv.key
+      pem: /etc/ssl/certs/ssl-srv.pem
+  tasks:
+  - name: "Install Postfix"
+    apt:
+      name: postfix
+      update_cache: true
+  - name: "Generate main.cf from template"
+    template:
+      src: templates/main.cf.j2
+      dest: /etc/postfix/main.cf
+      owner: root
+      group: root
+      mode: 0644
+  - name: "Reload Postfix service"
+    service:
+      name: postfix
+      state: reloaded
+
+- name: Dovecot
+  hosts: virtualmachines
+  become: true
+  vars:
+    ssl:
+      key: /etc/ssl/private/ssl-srv.key
+      pem: /etc/ssl/certs/ssl-srv.pem
+  tasks:
+  - name: "Install Dovecot"
+    apt:
+      name: dovecot-imapd
+      update_cache: true
+  - name: "Generate dovecot.conf from template"
+    template:
+      src: templates/dovecot.conf.j2
+      dest: /etc/dovecot/dovecot.conf
+      owner: root
+      group: root
+      mode: 0644
+  - name: "Restart Dovecot service"
+    service:
+      name: dovecot
+      state: restarted

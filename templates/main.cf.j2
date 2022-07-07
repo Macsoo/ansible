@@ -1,0 +1,15 @@
+smtpd_tls_cert_file={{ssl.pem}}
+smtpd_tls_key_file={{ssl.key}}
+smtpd_tls_security_level=may
+
+smtp_tls_CApath=/etc/ssl/certs
+smtp_tls_security_level=may
+smtp_tls_session_cache_database = btree:${data_directory}/smtp_scache
+
+smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination
+myhostname = {{ hostname }}.{{ domain }}
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+mydestination = {{ domain }}, localhost
+myorigin = {{ domain }}
+relayhost =
