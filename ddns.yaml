@@ -8,80 +8,83 @@
     key:
       file: "/etc/bind/rndc.key"
       name: "rndc-key"
-    zones:
-      - name: srv.lan
-        type: master
-        reverse: 1.10.10
-        records:
-        - name: "@"
-          type: NS
-          value: "ns1.srv.lan."
-        - name: "@"
-          type: MX
-          priority: 10
-          value: "mail.srv.lan."
-        - name: ns1
-          type: A
-          value: 10.10.1.2
-        - name: control
-          type: A
-          value: 10.10.1.1
-        - name: www
-          type: A
-          value: 10.10.1.1
-        - name: mail
-          type: A
-          value: 10.10.1.2
-        - name: pop3
-          type: CNAME
-          value: mail
-        - name: smtp
-          type: CNAME
-          value: mail
-        - name: imap
-          type: CNAME
-          value: mail
-        - name: 2
-          type: PTR
-          value: "ns1.srv.lan."
-        - name: 1
-          type: PTR
-          value: "control.srv.lan."
-      - name: clt.lan
-        type: master
-        reverse: 2.20.10
-        records:
-        - name: "@"
-          type: NS
-          value: "ns1.clt.lan."
-        - name: ns1
-          type: A
-          value: 10.20.2.2
-        - name: control
-          type: A
-          value: 10.20.2.1
-        - name: www
-          type: A
-          value: 10.20.2.1
-        - name: mail
-          type: A
-          value: 10.20.2.1
-        - name: pop3
-          type: CNAME
-          value: mail
-        - name: smtp
-          type: CNAME
-          value: mail
-        - name: imap
-          type: CNAME
-          value: mail
-        - name: 2
-          type: PTR
-          value: "ns1.srv.lan."
-        - name: 1
-          type: PTR
-          value: "control.srv.lan."
+    #zones:
+    #  - name: srv.lan
+    #    type: master
+    #    reverse: 1.10.10
+    #    records:
+    #    - name: "@"
+    #      type: NS
+    #      value: "ns1.srv.lan."
+    #    - name: "@"
+    #      type: MX
+    #      priority: 10
+    #      value: "mail.srv.lan."
+    #    - name: ns1
+    #      type: A
+    #      value: 10.10.1.2
+    #    - name: control
+    #      type: A
+    #      value: 10.10.1.1
+    #    - name: www
+    #      type: A
+    #      value: 10.10.1.1
+    #    - name: mail
+    #      type: A
+    #      value: 10.10.1.2
+    #    - name: pop3
+    #      type: CNAME
+    #      value: mail
+    #    - name: smtp
+    #      type: CNAME
+    #      value: mail
+    #    - name: imap
+    #      type: CNAME
+    #      value: mail
+    #    - name: 2
+    #      type: PTR
+    #      value: "ns1.srv.lan."
+    #    - name: 1
+    #      type: PTR
+    #      value: "control.srv.lan."
+    #  - name: clt.lan
+    #    type: master
+    #    reverse: 2.20.10
+    #    records:
+    #    - name: "@"
+    #      type: NS
+    #      value: "ns1.clt.lan."
+    #    - name: ns1
+    #      type: A
+    #      value: 10.20.2.2
+    #    - name: control
+    #      type: A
+    #      value: 10.20.2.1
+    #    - name: www
+    #      type: A
+    #      value: 10.20.2.1
+    #    - name: mail
+    #      type: A
+    #      value: 10.20.2.1
+    #    - name: pop3
+    #      type: CNAME
+    #      value: mail
+    #    - name: smtp
+    #      type: CNAME
+    #      value: mail
+    #    - name: imap
+    #      type: CNAME
+    #      value: mail
+    #    - name: 2
+    #      type: PTR
+    #      value: "ns1.clt.lan."
+    #    - name: 1
+    #      type: PTR
+    #      value: "control.clt.lan."
   tasks:
+  - name: Setup the DNS zones
+    include_tasks: prompt.yaml
+    when: zones is undefined
   - name: "Install bind9"
     apt:
       name: bind9
