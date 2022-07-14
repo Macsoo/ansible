@@ -1,10 +1,10 @@
----
 - name: Installing LDAP server
   hosts: server
   become: true
   vars:
-    password: asdf
-    bind_dn: "cn=admin,dc=clt,dc=lan"
+    ldap_auth:
+      bind_dn: "cn=admin,dc=clt,dc=lan"
+      bind_pw: "asdf"
     ldap_groups:
     - ou: mail
       dc: clt.lan
@@ -23,13 +23,13 @@
     debconf:
       name: "slapd"
       question: 'slapd/password1'
-      value: "{{ password }}"
+      value: "{{ ldap_auth.bind_pw }}"
       vtype: password
   - name: Confirm openldap password
     debconf:
       name: "slapd"
       question: 'slapd/password2'
-      value: "{{ password }}"
+      value: "{{ ldap_auth.bind_pw }}"
       vtype: password
   - name: Set openldap domain
     debconf:
@@ -46,23 +46,70 @@
       - slapd
       - ldap-utils
       - python3-ldap
+  - name: Copy config password
+    template:
+      src: templates/config_pass.ldif.j2
+      dest: config_pass.ldif
+  - name: Change config password
+    command: "ldapmodify -Y EXTERNAL -H ldapi:/// -f config_pass.ldif"
+  - name: Check if schema is already installed
+    command: "ldapsearch -D cn=admin,cn=config -w {{ ldap_auth.bind_pw }} -H ldapi:/// -b \"cn=config\" -LLL objectClass=olcSchemaConfig dn"
+    register: schema_search
+  - name: "Save result"
+    set_fact:
+      postfix_schema: "{{ schema_search.stdout.split(\"\n\n\") | select('search', 'postfix,cn=schema,cn=config') | length > 0 }}"
+  - name: Copy postfix_schema
+    copy:
+      src: files/postfix_schema.ldif
+      dest: /tmp/postfix_schema.ldif
+    when: not postfix_schema
+  - name: Register postfix_schema
+    command: "ldapmodify -D cn=admin,cn=config -w {{ ldap_auth.bind_pw }} -H ldapi:/// -f /tmp/postfix_schema.ldif"
+    when: not postfix_schema
   - name: Adding groups
     ldap_entry:
       dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
       objectClass:
         - organizationalUnit
       state: present
-      server_uri: ldap://localhost/
-      bind_dn: "{{ bind_dn }}"
-      bind_pw: "{{ password }}"
     loop: "{{ ldap_groups }}"
   - name: Add accounts
     ldap_entry:
       dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
       objectClass:
       - account
+      - postfixUser
       state: present
-      server_uri: ldap://localhost
-      bind_dn: "{{ bind_dn }}"
-      bind_pw: "{{ password }}"
     loop: "{{ ldap_accounts }}"
+  - name: Add mail
+    ldap_attrs:
+      dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
+      state: exact
+      attributes:
+        mailacceptinggeneralid: "{{ item.uid }}@{{ item.dc }}"
+    loop: "{{ ldap_accounts }}"
+  - name: Add postfix reader object
+    ldap_entry:
+      dn: "cn=mailAccountReader,dc=clt,dc=lan"
+      objectClass:
+        - organizationalRole
+      state: present
+  - name: Add password
+    ldap_attrs:
+      dn: "cn=mailAccountReader,dc=clt,dc=lan"
+      state: exact
+      attributes:
+        objectClass:
+        - organizationalRole
+        - simpleSecurityObject
+        userPassword: "{{ ldap_auth.bind_pw }}"
+      bind_dn: "{{ ldap_auth.bind_dn }}"
+      bind_pw: "{{ ldap_auth.bind_pw }}"
+  - name: Copy slapd.conf
+    template:
+      src: templates/slapd.conf.j2
+      dest: /etc/ldap/slapd.conf
+  - name: Restart slapd
+    service:
+      name: slapd
+      state: restarted

@@ -1,0 +1,8 @@
+to attrs=userPassword
+  by self =xw
+  by anonymous auth
+  by * none
+  
+to dn.subtree="ou=Mail,dc=clt,dc=lan"
+  by dn.base="cn=mailAccountReader,dc=clt,dc=lan" read
+  by * none
