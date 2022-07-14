@@ -12,6 +12,9 @@
     - uid: mailuser
       ou: mail
       dc: clt.lan
+    - uid: anothermail
+      ou: mail
+      dc: clt.lan
   tasks:
   - name: Openldap conf
     debconf:
@@ -64,7 +67,7 @@
       dest: /tmp/postfix_schema.ldif
     when: not postfix_schema
   - name: Register postfix_schema
-    command: "ldapmodify -D cn=admin,cn=config -w {{ ldap_auth.bind_pw }} -H ldapi:/// -f /tmp/postfix_schema.ldif"
+    command: "ldapadd -D cn=admin,cn=config -w {{ ldap_auth.bind_pw }} -H ldapi:/// -f /tmp/postfix_schema.ldif"
     when: not postfix_schema
   - name: Adding groups
     ldap_entry:
@@ -72,28 +75,46 @@
       objectClass:
         - organizationalUnit
       state: present
+      bind_dn: "{{ ldap_auth.bind_dn }}"
+      bind_pw: "{{ ldap_auth.bind_pw }}"
     loop: "{{ ldap_groups }}"
+  - name: Remove accounts from previous tries
+    ldap_entry:
+      dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
+      state: absent
+      bind_dn: "{{ ldap_auth.bind_dn }}"
+      bind_pw: "{{ ldap_auth.bind_pw }}"
+    loop: "{{ ldap_accounts }}"
   - name: Add accounts
     ldap_entry:
       dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
       objectClass:
       - account
+      - posixAccount
       - postfixUser
-      state: present
-    loop: "{{ ldap_accounts }}"
-  - name: Add mail
-    ldap_attrs:
-      dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
-      state: exact
       attributes:
+        cn: "{{ item.uid }}"
         mailacceptinggeneralid: "{{ item.uid }}@{{ item.dc }}"
+        maildrop: "{{ item.uid }}@{{ item.dc }}"
+        uid: "{{ item.uid }}"
+        homedirectory: "/home/mail/{{ item.uid }}"
+        uidnumber: "{{ 20000 + idx }}"
+        gidnumber: "{{ 20000 + idx }}"
+        userPassword: "{{ ldap_auth.bind_pw }}"
+      state: present
+      bind_dn: "{{ ldap_auth.bind_dn }}"
+      bind_pw: "{{ ldap_auth.bind_pw }}"
     loop: "{{ ldap_accounts }}"
+    loop_control:
+      index_var: idx
   - name: Add postfix reader object
     ldap_entry:
       dn: "cn=mailAccountReader,dc=clt,dc=lan"
       objectClass:
         - organizationalRole
       state: present
+      bind_dn: "{{ ldap_auth.bind_dn }}"
+      bind_pw: "{{ ldap_auth.bind_pw }}"
   - name: Add password
     ldap_attrs:
       dn: "cn=mailAccountReader,dc=clt,dc=lan"
@@ -109,6 +130,59 @@
     template:
       src: templates/slapd.conf.j2
       dest: /etc/ldap/slapd.conf
+  - name: Create CA private key
+    community.crypto.openssl_privatekey:
+      path: /etc/ldap/CA.key
+      mode: 0400
+      owner: openldap
+      group: openldap
+  - name: Create CA certificate
+    community.crypto.x509_certificate:
+      path: /etc/ldap/CA.pem
+      privatekey_path: /etc/ldap/CA.key
+      provider: selfsigned
+      mode: 0404
+      owner: openldap
+      group: openldap
+  - name: Create LDAP private key
+    community.crypto.openssl_privatekey:
+      path: /etc/ldap/ldap.key
+      mode: 0400
+      owner: openldap
+      group: openldap
+  - name: Create LDAP CSR
+    community.crypto.openssl_csr:
+      privatekey_path: /etc/ldap/ldap.key
+      common_name: ldap.clt.lan
+      path: /etc/ldap/ldap.csr
+      mode: 0400
+      owner: openldap
+      group: openldap
+  - name: Create LDAP certificate
+    community.crypto.x509_certificate:
+      csr_path: /etc/ldap/ldap.csr
+      provider: ownca
+      ownca_path: /etc/ldap/CA.pem
+      ownca_privatekey_path: /etc/ldap/CA.key
+      path: /etc/ldap/ldap.crt
+      mode: 0400
+      owner: openldap
+      group: openldap
+  - name: Add TLS cert path to config
+    ldap_attrs:
+      dn: "cn=config"
+      state: exact
+      attributes:
+        olcTLSCACertificateFile: /etc/ldap/CA.pem
+        olcTLSCertificateKeyFile: /etc/ldap/ldap.key
+        olcTLSCertificateFile: /etc/ldap/ldap.crt
+  - name: Use CA
+    copy:
+      src: files/ldap.conf
+      dest: /etc/ldap/ldap.conf
+      mode: 0644
+      owner: root
+      group: root
   - name: Restart slapd
     service:
       name: slapd

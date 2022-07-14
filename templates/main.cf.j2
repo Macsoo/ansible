@@ -1,15 +1,40 @@
-smtpd_tls_cert_file={{ssl.pem}}
-smtpd_tls_key_file={{ssl.key}}
-smtpd_tls_security_level=may
-
-smtp_tls_CApath=/etc/ssl/certs
-smtp_tls_security_level=may
-smtp_tls_session_cache_database = btree:${data_directory}/smtp_scache
-
-smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination
-myhostname = {{ hostname }}.{{ domain }}
+compatibility_level = 2
+command_directory = /usr/sbin
+daemon_directory = /usr/lib/postfix/sbin
+data_directory = /var/lib/postfix
+mail_owner = {{ mail_owner }}
+myhostname = {{ hostname }}
+mydomain = {{ domain }}
+myorigin = $mydomain
+inet_interfaces = all
+unknown_local_recipient_reject_code = 550
+mynetworks_style = subnet
+mynetworks = 127.0.0.0/8, {{ subnet }}
 alias_maps = hash:/etc/aliases
 alias_database = hash:/etc/aliases
-mydestination = {{ domain }}, localhost
-myorigin = {{ domain }}
-relayhost =
+home_mailbox = Maildir/
+mailbox_transport = lmtp:inet:{{ dovecot_srv_ip }}:24
+virtual_transport = lmtp:inet:{{ dovecot_srv_ip }}:24
+smtpd_banner = $myhostname, ESMTP
+sendmail_path = /usr/sbin/postfix
+newaliases_path = /usr/bin/newaliases
+mailq_path = /usr/bin/mailq
+setgid_group = postdrop
+inet_protocols = ipv4
+disable_vrfy_command = yes
+smtpd_helo_required = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = inet:{{ dovecot_srv_ip }}:25
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+smtpd_sasl_local_domain = $myhostname
+
+virtual_mailbox_domains = ldap:/etc/postfix/ldap/virtual_alias_domains
+
+virtual_alias_maps = ldap:/etc/postfix/ldap/virtual_alias_maps
+virtual_mailbox_base = /
+virtual_mailbox_maps = ldap:/etc/postfix/ldap/virtual_mailbox_maps
+virtual_uid_maps = ldap:/etc/postfix/ldap/virtual_uid_maps
+virtual_gid_maps = ldap:/etc/postfix/ldap/virtual_uid_maps
+
+smtpd_sender_login_maps = ldap:/etc/postfix/ldap/smtpd_sender_login_maps

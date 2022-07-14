@@ -1,27 +1,5 @@
-mail_location = mbox:~/mail:INBOX=/var/mail/%u
-
-disable_plaintext_auth = no
-mail_privileged_group = mail
-
-passdb {
-  driver = pam
-  args = %s
-}
-
-userdb {
-  driver = passwd
-}
-
-ssl=yes
-ssl_cert=<{{ssl.pem}}
-ssl_key=<{{ssl.key}}
-
-protocols = "imaps"
-
-service auth {
-  unix_listener /var/spool/postfix/private/auth {
-    group = postfix
-    mode = 0660
-    user = postfix
-  }
-}
+!include_try /usr/share/dovecot/protocols.d/*.protocol
+listen = *, ::
+!include conf.d/*.conf
+protocols = imap pop3 lmtp
+!include_try local.conf

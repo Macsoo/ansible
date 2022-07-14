@@ -1,76 +1,152 @@
-- name: CA
-  hosts: virtualmachines
+- name: "Setting up Postfix"
+  hosts: server
   become: true
   vars:
-    ssl:
-      key: /etc/ssl/private/ssl-srv.key
-      pem: /etc/ssl/certs/ssl-srv.pem
+    password: "{{ 'password123' | password_hash('sha512') }}"
+    postfix_pkgs:
+    - "postfix"
+    - "sasl2-bin"
+    - "postfix-ldap"
+    subnet: "10.20.2.0/24"
+  vars_prompt:
+  - name: mail_owner
+    prompt: Enter the mail owner
+    default: postfix
+    private: no
+  - name: domain
+    prompt: Enter your domain name
+    default: clt.lan
+    private: no 
+  - name: hostname
+    prompt: Enter your hostname
+    default: mail.clt.lan
+    private: no
+  - name: dovecot_srv_ip
+    prompt: Enter the IMAP/POP3 server's IP address
+    default: 10.20.2.3
+    private: no
   tasks:
-  - name: "Generate private key"
-    community.crypto.openssl_privatekey:
-      path: "{{ ssl.key }}"
-  - name: "Create certificate request"
-    community.crypto.openssl_csr_pipe:
-      privatekey_path: "{{ ssl.key }}"
-      common_name: mail.srv.lan
-      organization_name: "Srv LAN"
-      subject_alt_name:
-      - "DNS:smtp.srv.lan"
-      - "DNS:imap.srv.lan"
-    register: csr
-  - name: "Create certificate from CSR"
-    community.crypto.x509_certificate:
-      path: "{{ ssl.pem }}"
-      csr_content: "{{ csr.csr }}"
-      privatekey_path: "{{ ssl.key }}"
-      provider: selfsigned
-
-- name: Postfix
-  hosts: virtualmachines
-  become: true
-  vars:
-    hostname: mail
-    domain: srv.lan
-    ssl:
-      key: /etc/ssl/private/ssl-srv.key
-      pem: /etc/ssl/certs/ssl-srv.pem
-  tasks:
-  - name: "Install Postfix"
+  - name: "Installing Postfix"
     apt:
-      name: postfix
+      name: "{{ item }}"
       update_cache: true
-  - name: "Generate main.cf from template"
+    loop: "{{ postfix_pkgs }}"
+  - name: "Create mail folder"
+    file:
+      state: directory
+      path: /home/mail
+      owner: root
+      group: root
+      mode: 0666
+  - name: "Configuring main.cf"
     template:
       src: templates/main.cf.j2
       dest: /etc/postfix/main.cf
+      mode: 0644
       owner: root
       group: root
+  - name: "Configuring master.cf"
+    template:
+      src: templates/master.cf.j2
+      dest: /etc/postfix/master.cf
       mode: 0644
-  - name: "Reload Postfix service"
+      owner: root
+      group: root
+  - name: Copy ldap folder
+    copy:
+      src: files/ldap
+      dest: /etc/postfix
+      owner: postfix
+      group: postfix
+      mode: 0400
+  - name: "Create CA folder for postfix"
+    file:
+      state: directory
+      path: /var/spool/postfix/etc/ldap
+  - name: "Make the CA visible to postfix"
+    copy:
+      src: files/var-spool-postfix-etc-ldap.mount
+      dest: /etc/systemd/system/var-spool-postfix-etc-ldap.mount
+      mode: 0644
+  - name: "Reload daemons"
+    systemd:
+      daemon_reload: true
+      enabled: yes
+      state: restarted
+      name: var-spool-postfix-etc-ldap.mount
+  - name: "Restarting Postfix"
     service:
-      name: postfix
-      state: reloaded
-
-- name: Dovecot
-  hosts: virtualmachines
+      name: "postfix"
+      state: "reloaded"
+- name: "Setting up Dovecot"
+  hosts: dovecot
   become: true
   vars:
-    ssl:
-      key: /etc/ssl/private/ssl-srv.key
-      pem: /etc/ssl/certs/ssl-srv.pem
+    dovecot_pkgs:
+      - "dovecot-core"
+      - "dovecot-imapd"
+      - "dovecot-pop3d"
+      - "dovecot-lmtpd"
+      - "dovecot-ldap"
+    password: "{{ 'password123' | password_hash('sha512') }}"
+  vars_prompt:
+    - name: dovecot_srv_ip
+      prompt: Enter the IMAP/POP3 server's IP address
+      default: 10.20.2.3
+      private: no
+    - name: maildir_location
+      prompt: Where do you want to store the users' mails?
+      private: no
+      default: "~/mailbox"
   tasks:
-  - name: "Install Dovecot"
+  - name: "Installing Dovecot"
     apt:
-      name: dovecot-imapd
+      name: "{{ item }}"
       update_cache: true
-  - name: "Generate dovecot.conf from template"
+    loop: "{{ dovecot_pkgs }}"
+  - name: "Configuring dovecot.conf"
     template:
       src: templates/dovecot.conf.j2
-      dest: /etc/dovecot/dovecot.conf
+      dest: "/etc/dovecot/dovecot.conf"
+      mode: 0644
       owner: root
       group: root
+  - name: "Configuring 10-auth.conf"
+    template:
+      src: templates/10-auth.conf.j2
+      dest: "/etc/dovecot/conf.d/10-auth.conf"
       mode: 0644
-  - name: "Restart Dovecot service"
+      owner: root
+      group: root
+  - name: "Configuring 10-mail.conf"
+    template:
+      src: templates/10-mail.conf.j2
+      dest: "/etc/dovecot/conf.d/10-mail.conf"
+      mode: 0644
+      owner: root
+      group: root
+  - name: "Configuring 10-master.conf"
+    template:
+      src: templates/10-master.conf.j2
+      dest: "/etc/dovecot/conf.d/10-master.conf"
+      mode: 0644
+      owner: root
+      group: root
+  - name: "Copying ldap config"
+    copy:
+      src: files/dovecot-ldap.conf.ext
+      dest: /etc/dovecot/dovecot-ldap.conf.ext
+      mode: 0600
+      owner: root
+      group: root
+  - name: "Create mail folder"
+    file:
+      state: directory
+      path: /home/mail
+      owner: root
+      group: root
+      mode: 0777
+  - name: "Restarting dovecot"
     service:
-      name: dovecot
-      state: restarted
+      name: "dovecot"
+      state: "restarted"

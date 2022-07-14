@@ -1,0 +1,12 @@
+[Unit]
+Description=Bind /etc/ldap to /var/spool/postfix/etc/ldap
+Before=postfix.service
+
+[Mount]
+What=/etc/ldap
+Where=/var/spool/postfix/etc/ldap
+Type=none
+Options=bind
+
+[Install]
+WantedBy=postfix.service
