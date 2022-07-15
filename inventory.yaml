@@ -4,15 +4,22 @@ virtualmachines:
       ansible_host: &postfix_srv 10.10.1.2
     dovecot:
       ansible_host: &dovecot_srv 10.10.1.3
+    ldap1:
+      ansible_host: &ldap1_srv 10.10.1.4
+    ldap2:
+      ansible_host: &ldap2_srv 10.10.1.5
   vars:
     ansible_user: debian
     ldap:
+      main_host: ldap1
       hostname: ldap
       domain: clt.lan
       password: asdf
       address:
-        srv: *postfix_srv
-        clt: 10.20.2.2
+        - srv: *ldap1_srv
+          clt: 10.20.2.4
+        - srv: *ldap2_srv
+          clt: 10.20.2.5
     dovecot:
       hostname: imap
       maildir: "mailbox"

@@ -1,5 +1,5 @@
-- name: Installing LDAP server
-  hosts: server
+- name: Main LDAP server
+  hosts: ldap1 #TODO
   become: true
   vars:
     bind_dn: "cn=admin,dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}"
@@ -121,6 +121,10 @@
     template:
       src: templates/slapd.conf.j2
       dest: /etc/ldap/slapd.conf
+  - name: "Install python3-cryptography"
+    apt:
+      update_cache: true
+      name: python3-cryptography
   - name: Create CA private key
     community.crypto.openssl_privatekey:
       path: /etc/ldap/CA.key
@@ -167,6 +171,14 @@
         olcTLSCACertificateFile: /etc/ldap/CA.pem
         olcTLSCertificateKeyFile: /etc/ldap/ldap.key
         olcTLSCertificateFile: /etc/ldap/ldap.crt
+  - name: Fetch LDAP key
+    fetch:
+      src: /etc/ldap/ldap.key
+      dest: files
+  - name: Fetch LDAP crt
+    fetch:
+      src: /etc/ldap/ldap.crt
+      dest: files
   - name: Fetch CA
     fetch:
       src: /etc/ldap/CA.pem
@@ -184,6 +196,141 @@
       line: "SLAPD_SERVICES=\"ldap:/// ldaps:/// ldapi:///\""
       regexp: '^SLAPD_SERVICES="(.*)"$'
       backrefs: yes
+  - name: Check if module is already loaded
+    command: "ldapsearch -D cn=admin,cn=config -w {{ ldap.password }} -H ldapi:/// -b \"cn=config\" -LLL objectClass=olcOverlayConfig dn"
+    register: module_search
+  - name: "Save result"
+    set_fact:
+      syncprov_module: "{{ module_search.stdout.split(\"\n\n\") | select('search', 'syncprov,olcDatabase=\\{1\\}mdb,cn=config') | length > 0 }}"
+  - name: Load syncprov.la
+    ldap_entry:
+      dn: "cn=module,cn=config"
+      objectClass: olcModuleList
+      attributes:
+        cn: module
+        olcModulePath: /usr/lib/ldap
+        olcModuleLoad: syncprov.la
+      server_uri: ldapi:///
+    when: not syncprov_module
+  - name: Setup syncprov
+    ldap_entry:
+      dn: "olcOverlay=syncprov,olcDatabase={1}mdb,cn=config"
+      objectClass:
+      - olcOverlayConfig
+      - olcSyncProvConfig
+      attributes:
+        olcOverlay: syncprov
+        olcSpSessionLog: 100
+    when: not syncprov_module
+  - name: Restart slapd
+    service:
+      name: slapd
+      state: restarted
+
+- name: Secondary LDAP server
+  hosts: ldap2 #TODO
+  become: true
+  vars:
+    bind_dn: "cn=admin,dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}"
+  tasks:
+  - name: Openldap conf
+    debconf:
+      name: "slapd"
+      question: 'slapd/no_configuration'
+      value: "false"
+      vtype: boolean
+  - name: Set openldap password
+    debconf:
+      name: "slapd"
+      question: 'slapd/password1'
+      value: "{{ ldap.password }}"
+      vtype: password
+  - name: Confirm openldap password
+    debconf:
+      name: "slapd"
+      question: 'slapd/password2'
+      value: "{{ ldap.password }}"
+      vtype: password
+  - name: Set openldap domain
+    debconf:
+      name: "slapd"
+      question: 'slapd/domain'
+      value: clt.lan
+      vtype: string
+  - name: Install packages
+    apt:
+      name: "{{ item }}"
+      state: present
+      update_cache: yes
+    loop:
+      - slapd
+      - ldap-utils
+      - python3-ldap
+  - name: Copy config password
+    template:
+      src: templates/config_pass.ldif.j2
+      dest: config_pass.ldif
+  - name: Change config password
+    command: "ldapmodify -Y EXTERNAL -H ldapi:/// -f config_pass.ldif"
+  - name: Copy LDAP CA
+    copy:
+      src: "files/{{ ldap.main_host }}/etc/ldap/CA.pem"
+      dest: /etc/ldap/CA.pem
+      owner: root
+      group: root
+      mode: 0404
+  - name: Copy LDAP key
+    copy:
+      src: "files/{{ ldap.main_host }}/etc/ldap/ldap.key"
+      dest: /etc/ldap/ldap.key
+      owner: root
+      group: root
+      mode: 0404
+  - name: Copy LDAP crt
+    copy:
+      src: "files/{{ ldap.main_host }}/etc/ldap/ldap.crt"
+      dest: /etc/ldap/ldap.crt
+      owner: root
+      group: root
+      mode: 0404
+  - name: Use CA
+    copy:
+      src: files/ldap.conf
+      dest: /etc/ldap/ldap.conf
+      mode: 0644
+      owner: root
+      group: root
+  - name: Add TLS cert path to config
+    ldap_attrs:
+      dn: "cn=config"
+      state: exact
+      attributes:
+        olcTLSCACertificateFile: /etc/ldap/CA.pem
+        olcTLSCertificateKeyFile: /etc/ldap/ldap.key
+        olcTLSCertificateFile: /etc/ldap/ldap.crt
+  - name: Listen on ldaps://
+    lineinfile:
+      path: /etc/default/slapd
+      line: "SLAPD_SERVICES=\"ldap:/// ldaps:/// ldapi:///\""
+      regexp: '^SLAPD_SERVICES="(.*)"$'
+      backrefs: yes
+  - name: Setup syncrepl
+    ldap_attrs:
+      dn: "olcDatabase={1}mdb,cn=config"
+      state: exact
+      attributes:
+        olcSyncRepl: "rid=001
+          provider=ldap://ldap1.srv.lan:389/
+          bindmethod=simple
+          binddn=\"cn=admin,dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}\"
+          credentials={{ ldap.password }}
+          searchbase=\"dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}\"
+          scope=sub
+          schemachecking=on
+          type=refreshAndPersist
+          retry=\"30 5 300 3\"
+          interval=00:00:05:00"
+    ignore_errors: yes
   - name: Restart slapd
     service:
       name: slapd

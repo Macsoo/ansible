@@ -46,7 +46,7 @@
     - smtpd_sender_login_maps
   - name: Copy LDAP CA
     copy:
-      src: files/server/etc/ldap/CA.pem
+      src: "files/{{ ldap.main_host }}/etc/ldap/CA.pem"
       dest: /etc/postfix/ldap/CA.pem
       owner: root
       group: root
@@ -111,7 +111,7 @@
       group: root
   - name: Copy LDAP CA
     copy:
-      src: files/server/etc/ldap/CA.pem
+      src: "files/{{ ldap.main_host }}/etc/ldap/CA.pem"
       dest: /etc/dovecot
       owner: root
       group: root
