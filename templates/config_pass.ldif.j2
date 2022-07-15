@@ -1,4 +1,4 @@
 dn: olcDatabase={0}config,cn=config
 changetype: modify
 replace: olcRootPW
-olcRootPW: {{ ldap_auth.bind_pw }}
+olcRootPW: {{ ldap.password }}

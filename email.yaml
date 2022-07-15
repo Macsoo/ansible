@@ -1,36 +1,15 @@
 - name: "Setting up Postfix"
   hosts: server
   become: true
-  vars:
-    password: "{{ 'password123' | password_hash('sha512') }}"
-    postfix_pkgs:
-    - "postfix"
-    - "sasl2-bin"
-    - "postfix-ldap"
-    subnet: "10.20.2.0/24"
-  vars_prompt:
-  - name: mail_owner
-    prompt: Enter the mail owner
-    default: postfix
-    private: no
-  - name: domain
-    prompt: Enter your domain name
-    default: clt.lan
-    private: no 
-  - name: hostname
-    prompt: Enter your hostname
-    default: mail.clt.lan
-    private: no
-  - name: dovecot_srv_ip
-    prompt: Enter the IMAP/POP3 server's IP address
-    default: 10.20.2.3
-    private: no
   tasks:
   - name: "Installing Postfix"
     apt:
       name: "{{ item }}"
       update_cache: true
-    loop: "{{ postfix_pkgs }}"
+    loop:
+    - "postfix"
+    - "sasl2-bin"
+    - "postfix-ldap"
   - name: "Create mail folder"
     file:
       state: directory
@@ -52,28 +31,41 @@
       mode: 0644
       owner: root
       group: root
-  - name: Copy ldap folder
-    copy:
-      src: files/ldap
-      dest: /etc/postfix
+  - name: Generate virtual lookup configs
+    template:
+      src: "templates/ldap/{{ item }}.j2"
+      dest: /etc/postfix/ldap/{{ item }}
       owner: postfix
       group: postfix
       mode: 0400
+    loop:
+    - virtual_uid_maps
+    - virtual_mailbox_maps
+    - virtual_alias_maps
+    - virtual_alias_domains
+    - smtpd_sender_login_maps
+  - name: Copy LDAP CA
+    copy:
+      src: files/server/etc/ldap/CA.pem
+      dest: /etc/postfix/ldap/CA.pem
+      owner: root
+      group: root
+      mode: 0404
   - name: "Create CA folder for postfix"
     file:
       state: directory
       path: /var/spool/postfix/etc/ldap
   - name: "Make the CA visible to postfix"
     copy:
-      src: files/var-spool-postfix-etc-ldap.mount
-      dest: /etc/systemd/system/var-spool-postfix-etc-ldap.mount
+      src: files/var-spool-postfix-etc-postfix-ldap.mount
+      dest: /etc/systemd/system/var-spool-postfix-etc-postfix-ldap.mount
       mode: 0644
   - name: "Reload daemons"
     systemd:
       daemon_reload: true
       enabled: yes
       state: restarted
-      name: var-spool-postfix-etc-ldap.mount
+      name: var-spool-postfix-etc-postfix-ldap.mount
   - name: "Restarting Postfix"
     service:
       name: "postfix"
@@ -81,29 +73,17 @@
 - name: "Setting up Dovecot"
   hosts: dovecot
   become: true
-  vars:
-    dovecot_pkgs:
-      - "dovecot-core"
-      - "dovecot-imapd"
-      - "dovecot-pop3d"
-      - "dovecot-lmtpd"
-      - "dovecot-ldap"
-    password: "{{ 'password123' | password_hash('sha512') }}"
-  vars_prompt:
-    - name: dovecot_srv_ip
-      prompt: Enter the IMAP/POP3 server's IP address
-      default: 10.20.2.3
-      private: no
-    - name: maildir_location
-      prompt: Where do you want to store the users' mails?
-      private: no
-      default: "~/mailbox"
   tasks:
   - name: "Installing Dovecot"
     apt:
       name: "{{ item }}"
       update_cache: true
-    loop: "{{ dovecot_pkgs }}"
+    loop:
+    - "dovecot-core"
+    - "dovecot-imapd"
+    - "dovecot-pop3d"
+    - "dovecot-lmtpd"
+    - "dovecot-ldap"
   - name: "Configuring dovecot.conf"
     template:
       src: templates/dovecot.conf.j2
@@ -111,34 +91,31 @@
       mode: 0644
       owner: root
       group: root
-  - name: "Configuring 10-auth.conf"
+  - name: "Configuring conf.d"
     template:
-      src: templates/10-auth.conf.j2
-      dest: "/etc/dovecot/conf.d/10-auth.conf"
+      src: "templates/{{ item }}.j2"
+      dest: "/etc/dovecot/conf.d/{{ item }}"
       mode: 0644
       owner: root
       group: root
-  - name: "Configuring 10-mail.conf"
+    loop:
+    - 10-auth.conf
+    - 10-mail.conf
+    - 10-master.conf
+  - name: "Generating LDAP config"
     template:
-      src: templates/10-mail.conf.j2
-      dest: "/etc/dovecot/conf.d/10-mail.conf"
-      mode: 0644
-      owner: root
-      group: root
-  - name: "Configuring 10-master.conf"
-    template:
-      src: templates/10-master.conf.j2
-      dest: "/etc/dovecot/conf.d/10-master.conf"
-      mode: 0644
-      owner: root
-      group: root
-  - name: "Copying ldap config"
-    copy:
-      src: files/dovecot-ldap.conf.ext
+      src: templates/dovecot-ldap.conf.ext.j2
       dest: /etc/dovecot/dovecot-ldap.conf.ext
       mode: 0600
       owner: root
       group: root
+  - name: Copy LDAP CA
+    copy:
+      src: files/server/etc/ldap/CA.pem
+      dest: /etc/dovecot
+      owner: root
+      group: root
+      mode: 0404
   - name: "Create mail folder"
     file:
       state: directory

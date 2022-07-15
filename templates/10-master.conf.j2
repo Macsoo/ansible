@@ -9,7 +9,6 @@ service imap-login {
 }
 service pop3-login {
     inet_listener pop3 {
-
     }
     inet_listener pop3s {
     }
@@ -20,7 +19,7 @@ service submission-login {
 }
 service lmtp {
     inet_listener lmtp {
-        address = {{ dovecot_srv_ip }}
+        address = {{ dovecot.address.srv }}
         port = 24
     }
 }
@@ -35,7 +34,7 @@ service auth {
         mode = 0666
     }
     inet_listener postfix {
-        address = {{ dovecot_srv_ip }}
+        address = {{ dovecot.address.srv }}
         port = 25
     }
 }

@@ -2,19 +2,18 @@
   hosts: server
   become: true
   vars:
-    ldap_auth:
-      bind_dn: "cn=admin,dc=clt,dc=lan"
-      bind_pw: "asdf"
+    bind_dn: "cn=admin,dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}"
     ldap_groups:
-    - ou: mail
-      dc: clt.lan
+    - mail
     ldap_accounts:
-    - uid: mailuser
-      ou: mail
-      dc: clt.lan
-    - uid: anothermail
-      ou: mail
-      dc: clt.lan
+    - dn:
+        uid: mailuser
+        ou: mail
+      password: asdf1
+    - dn:
+        uid: anothermail
+        ou: mail
+      password: asdf2
   tasks:
   - name: Openldap conf
     debconf:
@@ -26,13 +25,13 @@
     debconf:
       name: "slapd"
       question: 'slapd/password1'
-      value: "{{ ldap_auth.bind_pw }}"
+      value: "{{ ldap.password }}"
       vtype: password
   - name: Confirm openldap password
     debconf:
       name: "slapd"
       question: 'slapd/password2'
-      value: "{{ ldap_auth.bind_pw }}"
+      value: "{{ ldap.password }}"
       vtype: password
   - name: Set openldap domain
     debconf:
@@ -56,7 +55,7 @@
   - name: Change config password
     command: "ldapmodify -Y EXTERNAL -H ldapi:/// -f config_pass.ldif"
   - name: Check if schema is already installed
-    command: "ldapsearch -D cn=admin,cn=config -w {{ ldap_auth.bind_pw }} -H ldapi:/// -b \"cn=config\" -LLL objectClass=olcSchemaConfig dn"
+    command: "ldapsearch -D cn=admin,cn=config -w {{ ldap.password }} -H ldapi:/// -b \"cn=config\" -LLL objectClass=olcSchemaConfig dn"
     register: schema_search
   - name: "Save result"
     set_fact:
@@ -67,65 +66,57 @@
       dest: /tmp/postfix_schema.ldif
     when: not postfix_schema
   - name: Register postfix_schema
-    command: "ldapadd -D cn=admin,cn=config -w {{ ldap_auth.bind_pw }} -H ldapi:/// -f /tmp/postfix_schema.ldif"
+    command: "ldapadd -D cn=admin,cn=config -w {{ ldap.password }} -H ldapi:/// -f /tmp/postfix_schema.ldif"
     when: not postfix_schema
   - name: Adding groups
     ldap_entry:
-      dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
+      dn: "ou={{ item }},dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}"
       objectClass:
         - organizationalUnit
       state: present
-      bind_dn: "{{ ldap_auth.bind_dn }}"
-      bind_pw: "{{ ldap_auth.bind_pw }}"
+      bind_dn: "{{ bind_dn }}"
+      bind_pw: "{{ ldap.password }}"
     loop: "{{ ldap_groups }}"
   - name: Remove accounts from previous tries
     ldap_entry:
-      dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
+      dn: "{{ item.dn.keys() | zip(item.dn.values()) | map('join', '=') | join(',') }},dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}"
       state: absent
-      bind_dn: "{{ ldap_auth.bind_dn }}"
-      bind_pw: "{{ ldap_auth.bind_pw }}"
+      bind_dn: "{{ bind_dn }}"
+      bind_pw: "{{ ldap.password }}"
     loop: "{{ ldap_accounts }}"
   - name: Add accounts
     ldap_entry:
-      dn: "{{ item.keys() | zip(item.values()) | map('join', '=') | join(',') | regex_replace('\\.', ',dc=') }}"
+      dn: "{{ item.dn.keys() | zip(item.dn.values()) | map('join', '=') | join(',') }},dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}"
       objectClass:
       - account
       - posixAccount
       - postfixUser
       attributes:
-        cn: "{{ item.uid }}"
-        mailacceptinggeneralid: "{{ item.uid }}@{{ item.dc }}"
-        maildrop: "{{ item.uid }}@{{ item.dc }}"
-        uid: "{{ item.uid }}"
-        homedirectory: "/home/mail/{{ item.uid }}"
+        cn: "{{ item.dn.uid }}"
+        mailacceptinggeneralid: "{{ item.dn.uid }}@{{ ldap.domain }}"
+        maildrop: "{{ item.dn.uid }}@{{ ldap.domain }}"
+        uid: "{{ item.dn.uid }}"
+        homedirectory: "/home/mail/{{ item.dn.uid }}"
         uidnumber: "{{ 20000 + idx }}"
         gidnumber: "{{ 20000 + idx }}"
-        userPassword: "{{ ldap_auth.bind_pw }}"
+        userPassword: "{{ item.password }}"
       state: present
-      bind_dn: "{{ ldap_auth.bind_dn }}"
-      bind_pw: "{{ ldap_auth.bind_pw }}"
+      bind_dn: "{{ bind_dn }}"
+      bind_pw: "{{ ldap.password }}"
     loop: "{{ ldap_accounts }}"
     loop_control:
       index_var: idx
   - name: Add postfix reader object
     ldap_entry:
-      dn: "cn=mailAccountReader,dc=clt,dc=lan"
+      dn: "cn=mailAccountReader,dc={{ ldap.domain | regex_replace('\\.', ',dc=') }}"
       objectClass:
         - organizationalRole
-      state: present
-      bind_dn: "{{ ldap_auth.bind_dn }}"
-      bind_pw: "{{ ldap_auth.bind_pw }}"
-  - name: Add password
-    ldap_attrs:
-      dn: "cn=mailAccountReader,dc=clt,dc=lan"
-      state: exact
-      attributes:
-        objectClass:
-        - organizationalRole
         - simpleSecurityObject
-        userPassword: "{{ ldap_auth.bind_pw }}"
-      bind_dn: "{{ ldap_auth.bind_dn }}"
-      bind_pw: "{{ ldap_auth.bind_pw }}"
+      attributes:
+        userPassword: "{{ ldap.password }}"
+      state: present
+      bind_dn: "{{ bind_dn }}"
+      bind_pw: "{{ ldap.password }}"
   - name: Copy slapd.conf
     template:
       src: templates/slapd.conf.j2
@@ -153,7 +144,7 @@
   - name: Create LDAP CSR
     community.crypto.openssl_csr:
       privatekey_path: /etc/ldap/ldap.key
-      common_name: ldap.clt.lan
+      common_name: "{{ ldap.hostname }}.{{ ldap.domain }}"
       path: /etc/ldap/ldap.csr
       mode: 0400
       owner: openldap
@@ -176,6 +167,10 @@
         olcTLSCACertificateFile: /etc/ldap/CA.pem
         olcTLSCertificateKeyFile: /etc/ldap/ldap.key
         olcTLSCertificateFile: /etc/ldap/ldap.crt
+  - name: Fetch CA
+    fetch:
+      src: /etc/ldap/CA.pem
+      dest: files
   - name: Use CA
     copy:
       src: files/ldap.conf
@@ -183,6 +178,12 @@
       mode: 0644
       owner: root
       group: root
+  - name: Listen on ldaps://
+    lineinfile:
+      path: /etc/default/slapd
+      line: "SLAPD_SERVICES=\"ldap:/// ldaps:/// ldapi:///\""
+      regexp: '^SLAPD_SERVICES="(.*)"$'
+      backrefs: yes
   - name: Restart slapd
     service:
       name: slapd

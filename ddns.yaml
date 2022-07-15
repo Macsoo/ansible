@@ -5,7 +5,7 @@
     forwarders:
     - 8.8.8.8
     - 8.8.4.4
-    key:
+    key: &key
       file: "/etc/bind/rndc.key"
       name: "rndc-key"
     zones:
@@ -23,30 +23,27 @@
         - name: ns1
           type: A
           value: 10.10.1.2
-        - name: ldap
+        - name: "{{ ldap.hostname }}"
           type: A
-          value: 10.10.1.2
+          value: "{{ ldap.address.srv }}"
         - name: control
           type: A
           value: 10.10.1.1
         - name: www
           type: A
           value: 10.10.1.1
-        - name: mail
+        - name: "{{ postfix.hostname }}"
           type: A
-          value: 10.10.1.2
+          value: "{{ postfix.address.srv }}"
         - name: pop3
           type: CNAME
-          value: mail
-        - name: smtp
+          value: "{{ dovecot.hostname }}"
+        - name: mail
           type: CNAME
-          value: mail
-        - name: imap
+          value: "{{ postfix.hostname }}"
+        - name: "{{ dovecot.hostname }}"
           type: A
-          value: 10.10.1.3
-        - name: 3
-          type: PTR
-          value: "imap.srv.lan."
+          value: "{{ dovecot.address.srv }}"
         - name: 2
           type: PTR
           value: "ns1.srv.lan."
@@ -67,30 +64,27 @@
         - name: ns1
           type: A
           value: 10.20.2.2
-        - name: ldap
+        - name: "{{ ldap.hostname }}"
           type: A
-          value: 10.20.2.2
+          value: "{{ ldap.address.clt }}"
         - name: control
           type: A
           value: 10.20.2.1
         - name: www
           type: A
           value: 10.20.2.1
-        - name: mail
+        - name: "{{ postfix.hostname }}"
           type: A
-          value: 10.20.2.2
+          value: "{{ postfix.address.clt }}"
         - name: pop3
           type: CNAME
-          value: mail
-        - name: smtp
+          value: "{{ dovecot.hostname }}"
+        - name: mail
           type: CNAME
-          value: mail
-        - name: imap
+          value: "{{ postfix.hostname }}"
+        - name: "{{ dovecot.hostname }}"
           type: A
-          value: 10.20.2.3
-        - name: 3
-          type: PTR
-          value: "imap.clt.lan."
+          value: "{{ dovecot.address.clt }}"
         - name: 2
           type: PTR
           value: "ns1.clt.lan."
@@ -142,9 +136,7 @@
   hosts: server
   become: true
   vars:
-    key:
-      file: "/etc/bind/rndc.key"
-      name: "rndc-key"
+    key: *key
     subnets:
     - ip: 10.10.1.0
       netmask: 255.255.255.0
@@ -156,8 +148,8 @@
         - 10.10.1.2
         domain_name: srv.lan
         reverse: 1.10.10
-        routers:
-        - 10.10.1.254
+        #routers:
+        #- 10.10.1.254
     - ip: 10.20.2.0
       netmask: 255.255.255.0
       interface: enp0s9
@@ -168,8 +160,8 @@
         - 10.20.2.2
         domain_name: clt.lan
         reverse: 2.20.10
-        routers:
-        - 10.20.2.254
+        #routers:
+        #- 10.20.2.254
     fixed_hosts:
       - name: control
         mac: "08:00:27:d6:bd:e8"
